@@ -9,7 +9,6 @@ from . import views
 class CustomAuthAndRBACWithMockTests(APITestCase):
 
     def setUp(self):
-        """Инициализация чистых данных перед каждым тестом"""
         AccessRule.objects.all().delete()
         UserSession.objects.all().delete()
         Resource.objects.all().delete()
@@ -92,12 +91,10 @@ class CustomAuthAndRBACWithMockTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_documents_unauthorized_401(self):
-        """Ошибка 401 Unauthorized при обращении к документам без токена"""
         response = self.client.get('/api/documents/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_documents_expired_token_401(self):
-        """Ошибка 401 Unauthorized, если срок действия токена истек"""
         from datetime import datetime, timedelta
         self.manager_session.expires_at = datetime.now() - timedelta(hours=1)
         self.manager_session.save()
@@ -134,3 +131,60 @@ class CustomAuthAndRBACWithMockTests(APITestCase):
     def test_manage_rules_success_for_admin(self):
         response = self.client.get('/api/admin/rules/', **self.admin_headers)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_logout_success(self):
+        response = self.client.post('/api/auth/logout/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(UserSession.objects.filter(token=self.manager_session.token).exists())
+
+    def test_get_profile_success(self):
+        response = self.client.get('/api/auth/profile/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['email'], self.manager_user.email)
+        self.assertEqual(response.data['id'], self.manager_user.id)
+
+    def test_update_profile_success(self):
+        data = {"full_name": "Петр Петров Обновленный"}
+        response = self.client.put('/api/auth/profile/', data, format='json', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.manager_user.refresh_from_db()
+        self.assertEqual(self.manager_user.full_name, "Петр Петров Обновленный")
+
+    def test_manager_can_get_own_document_detail(self):
+        response = self.client.get('/api/documents/2/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['id'], 2)
+        self.assertEqual(response.data['owner_id'], self.manager_user.id)
+
+    def test_manager_cannot_get_alien_document_detail_403(self):
+        response = self.client.get('/api/documents/1/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_cannot_delete_alien_document_403(self):
+        response = self.client.delete('/api/documents/1/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_can_delete_own_document(self):
+        """Менеджер может успешно удалить свой собственный документ (id=2)"""
+        response = self.client.delete('/api/documents/2/', **self.manager_headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        from . import views
+        doc_exists = any(d.id == 2 for d in views.MOCK_DOCUMENTS_DB)
+        self.assertFalse(doc_exists)
+
+    def test_admin_can_create_access_rule(self):
+        new_user = CustomUser.objects.create(
+            full_name="Тестовый Юзер",
+            email="user@test.com",
+            password_hash=make_password("user123"),
+            is_active=True
+        )
+        data = {
+            "user": new_user.id,
+            "resource": self.doc_resource.id,
+            "read_all_permission": True,
+            "create_permission": True
+        }
+        response = self.client.post('/api/admin/rules/', data, format='json', **self.admin_headers)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(AccessRule.objects.filter(user=new_user, resource=self.doc_resource).exists())
