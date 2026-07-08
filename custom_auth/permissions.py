@@ -11,21 +11,21 @@ class CustomRBACPermission(BasePermission):
         auth_header = request.headers.get('Authorization')
         
         if not auth_header or not auth_header.startswith('Bearer '):
-            raise NotAuthenticated('Пользователь не авторизован (Ошибка 401)', code=401)
+            raise NotAuthenticated('Пользователь не авторизован')
 
         token_key = auth_header.split(' ')[1]
         
         try:
             session = UserSession.objects.get(token=token_key)
         except UserSession.DoesNotExist:
-            raise NotAuthenticated('Неверный токен (Ошибка 401)')
+            raise NotAuthenticated('Неверный токен')
 
         if session.is_expired():
             session.delete()
-            raise NotAuthenticated('Срок действия токена истек (Ошибка 401)')
+            raise NotAuthenticated('Срок действия токена истек')
 
         if not request.user or not session.user.is_active:
-            raise NotAuthenticated('Пользователь не найден или деактивирован (Ошибка 401)')
+            raise NotAuthenticated('Пользователь не найден или деактивирован')
 
         resource_name = getattr(view, 'resource_name', None)
         if not resource_name:

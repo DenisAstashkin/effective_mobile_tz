@@ -1,4 +1,7 @@
-﻿from rest_framework.authentication import BaseAuthentication
+﻿from django.utils import timezone
+from rest_framework import exceptions
+from rest_framework.authentication import BaseAuthentication
+
 from .models import UserSession
 
 class CustomTokenAuthentication(BaseAuthentication):
@@ -7,9 +10,21 @@ class CustomTokenAuthentication(BaseAuthentication):
         if not auth_header or not auth_header.startswith('Bearer '):
             return None
 
-        token_key = auth_header.split(' ')[1]
+        parts = auth_header.split(' ')
+        if len(parts) != 2:
+            raise exceptions.AuthenticationFailed('Invalid Authorization header')
+
+        token_key = parts[1]
+
         try:
             session = UserSession.objects.select_related('user').get(token=token_key)
-            return (session.user, token_key)
         except UserSession.DoesNotExist:
-            return None
+            raise exceptions.AuthenticationFailed('Invalid token')
+
+        if session.expires_at is not None and session.expires_at < timezone.now():
+            raise exceptions.AuthenticationFailed('Token has expired')
+
+        return (session.user, token_key)
+
+    def authenticate_header(self, request):
+        return 'Bearer'

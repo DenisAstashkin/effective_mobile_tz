@@ -3,7 +3,6 @@ from django.utils import timezone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
 from .models import CustomUser, UserSession, AccessRule
@@ -128,13 +127,20 @@ class MockDocumentView(APIView):
             return Response({"id": doc.id, "title": doc.title, "owner_id": doc.owner_id})
 
     def put(self, request, pk):
-        doc = next((d for d in MOCK_DOCUMENTS_DB if d.id == int(pk)), None)
-        if not doc:
+        global MOCK_DOCUMENTS_DB
+        
+        idx = next((i for i, d in enumerate(MOCK_DOCUMENTS_DB) if d.id == int(pk)), None)
+        if idx is None:
             return Response({"error": "Документ не найден"}, status=404)
+
+        doc = MOCK_DOCUMENTS_DB[idx]
 
         self.check_object_permissions(request, doc)
         
         doc.title = request.data.get('title', doc.title)
+        
+        MOCK_DOCUMENTS_DB[idx] = doc
+        
         return Response({"message": f"Документ {pk} изменен", "title": doc.title})
 
     def delete(self, request, pk):
